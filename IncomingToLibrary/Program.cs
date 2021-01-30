@@ -9,8 +9,8 @@ using System.Diagnostics;
 using Microsoft.Extensions.Configuration;
 
 using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.MetaData;
-using SixLabors.ImageSharp.MetaData.Profiles.Exif;
+using SixLabors.ImageSharp.Metadata;
+using SixLabors.ImageSharp.Metadata.Profiles.Exif;
 using SixLabors.ImageSharp.PixelFormats;
 
 namespace MurrayGrant.IncomingToLibrary
@@ -189,9 +189,9 @@ namespace MurrayGrant.IncomingToLibrary
             // Add author and copyright EXIF.
             using (var img = Image.Load(data.Source.FullName))
             {
-                img.MetaData.ExifProfile.SetValue(ExifTag.Copyright, $"Copyright (c) {data.SourceConfig.CopyrightTo}, {data.FileDateLocal.Year}. {data.SourceConfig.CopyrightLicenseShort}");
-                img.MetaData.ExifProfile.SetValue(ExifTag.XPAuthor, Encoding.Unicode.GetBytes(data.SourceConfig.CopyrightTo));     // Encoded in UCS2 / Unicdoe.
-                img.MetaData.ExifProfile.SetValue(ExifTag.XPComment, Encoding.Unicode.GetBytes($"Copyright (c) {data.SourceConfig.CopyrightTo}, {data.FileDateLocal.Year}. {data.SourceConfig.CopyrightLicenseFull}. {data.SourceConfig.CopyrightUrl}"));     // Encoded in UCS2 / Unicdoe.
+                img.Metadata.ExifProfile.SetValue(ExifTag.Copyright, $"Copyright (c) {data.SourceConfig.CopyrightTo}, {data.FileDateLocal.Year}. {data.SourceConfig.CopyrightLicenseShort}");
+                img.Metadata.ExifProfile.SetValue(ExifTag.XPAuthor, Encoding.Unicode.GetBytes(data.SourceConfig.CopyrightTo));     // Encoded in UCS2 / Unicdoe.
+                img.Metadata.ExifProfile.SetValue(ExifTag.XPComment, Encoding.Unicode.GetBytes($"Copyright (c) {data.SourceConfig.CopyrightTo}, {data.FileDateLocal.Year}. {data.SourceConfig.CopyrightLicenseFull}. {data.SourceConfig.CopyrightUrl}"));     // Encoded in UCS2 / Unicdoe.
 
                 // Save file.
                 img.Save(data.DestinationPath);
