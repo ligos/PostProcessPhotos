@@ -190,8 +190,8 @@ namespace MurrayGrant.IncomingToLibrary
             using (var img = Image.Load(data.Source.FullName))
             {
                 img.Metadata.ExifProfile.SetValue(ExifTag.Copyright, $"Copyright (c) {data.SourceConfig.CopyrightTo}, {data.FileDateLocal.Year}. {data.SourceConfig.CopyrightLicenseShort}");
-                img.Metadata.ExifProfile.SetValue(ExifTag.XPAuthor, Encoding.Unicode.GetBytes(data.SourceConfig.CopyrightTo));     // Encoded in UCS2 / Unicdoe.
-                img.Metadata.ExifProfile.SetValue(ExifTag.XPComment, Encoding.Unicode.GetBytes($"Copyright (c) {data.SourceConfig.CopyrightTo}, {data.FileDateLocal.Year}. {data.SourceConfig.CopyrightLicenseFull}. {data.SourceConfig.CopyrightUrl}"));     // Encoded in UCS2 / Unicdoe.
+                img.Metadata.ExifProfile.SetValue(ExifTag.XPAuthor, data.SourceConfig.CopyrightTo);
+                img.Metadata.ExifProfile.SetValue(ExifTag.XPComment, $"Copyright (c) {data.SourceConfig.CopyrightTo}, {data.FileDateLocal.Year}. {data.SourceConfig.CopyrightLicenseFull}. {data.SourceConfig.CopyrightUrl}");
 
                 // Save file.
                 img.Save(data.DestinationPath);
