@@ -13,7 +13,10 @@ namespace MurrayGrant.IncomingToLibrary
         public DateTime EffectiveFromLocal { get; set; }
 
         public IEnumerable<PhotoSource> PhotoSources { get; set; }
+
+        public string PathTo7Zip { get; set; }
     }
+
     public class PhotoSource
     {
         public string SourcePath { get; set; }

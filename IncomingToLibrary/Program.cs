@@ -2,6 +2,7 @@
 using System.Linq;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Text;
 using System.Diagnostics;
@@ -17,11 +18,12 @@ namespace MurrayGrant.IncomingToLibrary
 {
     class Program
     {
-        private static bool ReceivedCancelSignal;
+        private static CancellationTokenSource CancellationTokenSource;
 
         public static async Task Main(string[] args)
         {
             Console.WriteLine("Murray Grant - PostProcessPhotos - IncomingToLibrary");
+            CancellationTokenSource = new CancellationTokenSource();
             Console.CancelKeyPress += Console_CancelKeyPress;
 
             // Read config.
@@ -59,17 +61,19 @@ namespace MurrayGrant.IncomingToLibrary
                     if (String.Equals(fi.Extension, ".jpg", StringComparison.OrdinalIgnoreCase)
                         || String.Equals(fi.Extension, ".jpeg", StringComparison.OrdinalIgnoreCase))
                         await ProcessFile(fi, ProcessJpg, s, config, metadataByPath);
+                    else if (String.Equals(fi.Extension, ".dng", StringComparison.OrdinalIgnoreCase))
+                        await ProcessFile(fi, ProcessDng, s, config, metadataByPath);
                     else if (String.Equals(fi.Extension, ".mp4", StringComparison.OrdinalIgnoreCase))
                         await ProcessFile(fi, ProcessMp4, s, config, metadataByPath);
                     else
                         await ProcessFile(fi, ProcessUnknown, s, config, metadataByPath);
 
-                    if (ReceivedCancelSignal)
+                    if (CancellationTokenSource.IsCancellationRequested)
                         break;
                 }
 
                 Console.WriteLine("Finished processing incoming photos from: {0}, in {1:N2} seconds.", s.SourcePath, sw.Elapsed.TotalSeconds);
-                if (ReceivedCancelSignal)
+                if (CancellationTokenSource.IsCancellationRequested)
                     break;
             }
 
@@ -83,14 +87,20 @@ namespace MurrayGrant.IncomingToLibrary
 
         private static void Console_CancelKeyPress(object sender, ConsoleCancelEventArgs e)
         {
-            ReceivedCancelSignal = true;
+            CancellationTokenSource.Cancel();
             e.Cancel = true;        // Co-operative shutdown rather than immediate.
         }
 
         private static bool IsTempFile(FileInfo fi)
             => fi.Extension.Equals(".tmp", StringComparison.OrdinalIgnoreCase);
 
-        private static async Task ProcessFile(FileInfo fi, Func<ProcessFileData, Task> fileTypeProcessor, PhotoSource srcCfg, Config cfg, Dictionary<string, Metadata> metadataByDestinationFolder)
+        private static async Task ProcessFile(
+            FileInfo fi, 
+            Func<ProcessFileData, Task<ProcessFileResult>> fileTypeProcessor, 
+            PhotoSource srcCfg, 
+            Config cfg, 
+            Dictionary<string, Metadata> metadataByDestinationFolder
+        )
         {
             Console.Write(fi.Name + ": ");
             Metadata metadataForException = null;
@@ -184,7 +194,12 @@ namespace MurrayGrant.IncomingToLibrary
             public DateTime FileDateLocal { get; set; }
             public Dictionary<string, Metadata> MetadataByDestinationFolder { get; set; }
         }
-        private static Task ProcessJpg(ProcessFileData data)
+        private class ProcessFileResult
+        {
+            public string FinalDestinationPath { get; set; }
+        }
+
+        private static async Task<ProcessFileResult> ProcessJpg(ProcessFileData data)
         {
             // Add author and copyright EXIF.
             using (var img = Image.Load(data.Source.FullName))
@@ -194,13 +209,19 @@ namespace MurrayGrant.IncomingToLibrary
                 img.Metadata.ExifProfile.SetValue(ExifTag.XPComment, $"Copyright (c) {data.SourceConfig.CopyrightTo}, {data.FileDateLocal.Year}. {data.SourceConfig.CopyrightLicenseFull}. {data.SourceConfig.CopyrightUrl}");
 
                 // Save file.
-                img.Save(data.DestinationPath);
+                await img.SaveAsync(data.DestinationPath);
             }
-            return Task.FromResult<object>(null);
+
+            return new ProcessFileResult() 
+            { 
+                FinalDestinationPath = data.DestinationPath 
+            };
         }
 
-        private static async Task ProcessMp4(ProcessFileData data)
+        private static async Task<ProcessFileResult> ProcessMp4(ProcessFileData data)
         {
+            // TODO: use ffmpeg to transcode to AV1
+
             // Copy.
             await CopyFileAsync(data.Source.FullName, data.DestinationPath);
 
@@ -211,12 +232,39 @@ namespace MurrayGrant.IncomingToLibrary
                 mp4.Tag.Comment = $"Copyright (c) {data.SourceConfig.CopyrightTo}, {data.FileDateLocal.Year}. {data.SourceConfig.CopyrightLicenseFull}. {data.SourceConfig.CopyrightUrl}";
                 mp4.Save();
             }
+
+            return new ProcessFileResult()
+            {
+                FinalDestinationPath = data.DestinationPath
+            };
         }
 
-        private static async Task ProcessUnknown(ProcessFileData data)
+        private static async Task<ProcessFileResult> ProcessDng(ProcessFileData data)
+        {
+            // Compress the file with 7zip.
+            var destinationPath = Path.ChangeExtension(data.DestinationPath, "7z");
+            var args = new[]
+            {
+                "a",
+                "-mx5",
+                destinationPath,
+                data.Source.FullName,
+            };
+            await ExecAsync(data.Config.PathTo7Zip, args);
+            return new ProcessFileResult()
+            {
+                FinalDestinationPath = destinationPath
+            };
+        }
+
+        private static async Task<ProcessFileResult> ProcessUnknown(ProcessFileData data)
         {
             // Just copy.
             await CopyFileAsync(data.Source.FullName, data.DestinationPath);
+            return new ProcessFileResult()
+            {
+                FinalDestinationPath = data.DestinationPath
+            };
         }
 
         private static DateTimeOffset GetDateForFile(FileInfo fi, DateTimeKind assumeDatesAre)
@@ -259,6 +307,8 @@ namespace MurrayGrant.IncomingToLibrary
             return assumeDatesAre == DateTimeKind.Utc ? fi.LastWriteTimeUtc : fi.LastWriteTime;
         }
 
+        private static string Identity(string s) => s;
+
         // https://stackoverflow.com/a/35467471/117070
         private static async Task CopyFileAsync(string sourceFile, string destinationFile)
         {
@@ -267,8 +317,45 @@ namespace MurrayGrant.IncomingToLibrary
                 await sourceStream.CopyToAsync(destinationStream);
         }
 
+        private static async Task ExecAsync(string pathToExe, IEnumerable<string> args, int failureErrorCode = 1)
+        {
+            using (var p = new Process())
+            {
+                var stdout = new StringBuilder();
+                var stderr = new StringBuilder();
+
+                p.StartInfo = new ProcessStartInfo()
+                {
+                    FileName = pathToExe,
+                    CreateNoWindow = false,
+                    RedirectStandardError = true,
+                    RedirectStandardOutput = true,
+                    StandardOutputEncoding = Encoding.UTF8,
+                    StandardErrorEncoding = Encoding.UTF8,
+                };
+                foreach (var arg in args)
+                    p.StartInfo.ArgumentList.Add(arg);
+                p.ErrorDataReceived += (sender, e) => DataReceived(stderr, e);
+                p.OutputDataReceived += (sender, e) => DataReceived(stdout, e);
+                p.Start();
+                p.BeginErrorReadLine();
+                p.BeginOutputReadLine();
+
+                await p.WaitForExitAsync(CancellationTokenSource.Token);
+                if (p.ExitCode >= failureErrorCode)
+                    throw new Exception($"Exec of '{pathToExe} {string.Join(" ", args)}' failed with error code {p.ExitCode}. \n\nStdout: {stdout}\n\nStderr:\n\n{stderr}");
+
+                void DataReceived(StringBuilder sb, DataReceivedEventArgs e)
+                {
+                    if (e.Data != null)
+                        sb.AppendLine(e.Data);
+                }
+            }
+        }
+
         private static void EnsureFolderFor(string destinationPathAndFilename) 
             => Directory.CreateDirectory(Path.GetDirectoryName(destinationPathAndFilename));
+
     }
 }
 
