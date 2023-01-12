@@ -65,10 +65,10 @@ namespace MurrayGrant.IncomingToLibrary
                         MetadataByDestinationFolder = metadataByPath,
                     };
 
-                    // Process file based on file type.
+                    // Process file strategy based on file type.
                     if (String.Equals(fi.Extension, ".jpg", StringComparison.OrdinalIgnoreCase)
                         || String.Equals(fi.Extension, ".jpeg", StringComparison.OrdinalIgnoreCase))
-                        fileData.ProcessFile = ProcessJpg;
+                       fileData.ProcessFile = ProcessJpg;
                     else if (String.Equals(fi.Extension, ".dng", StringComparison.OrdinalIgnoreCase))
                         fileData.ProcessFile = ProcessDng;
                     else if (String.Equals(fi.Extension, ".mp4", StringComparison.OrdinalIgnoreCase))
@@ -76,6 +76,11 @@ namespace MurrayGrant.IncomingToLibrary
                     else
                         fileData.ProcessFile = ProcessUnknown;
 
+                    // Some file types end up with a different extension, required for determining if the file has already been processed.
+                    if (String.Equals(fi.Extension, ".dng", StringComparison.OrdinalIgnoreCase))
+                        fileData.DestinationExtension = "7z";
+
+                    // Process File!
                     await ProcessFile(fileData);
                     if (CancellationTokenSource.IsCancellationRequested)
                         break;
@@ -127,6 +132,8 @@ namespace MurrayGrant.IncomingToLibrary
                 // Determine destination folder and filename.
                 var destFolder = Path.Combine(fileData.Config.DestinationPath, fileData.FileDateLocal.ToString(fileData.Config.DestinationSubFolderPattern));
                 var destName = fileData.SourceConfig.FilenamePrefix + fileData.Source.Name;
+                if (!String.IsNullOrEmpty(fileData.DestinationExtension))
+                    destName = Path.ChangeExtension(destName, fileData.DestinationExtension);
                 fileData.DestinationPath = Path.Combine(destFolder, destName);
                 destPathForException = fileData.DestinationPath;
 
@@ -195,6 +202,7 @@ namespace MurrayGrant.IncomingToLibrary
             public PhotoSource SourceConfig { get; set; }
             public Config Config { get; set; }
             public Dictionary<string, Metadata> MetadataByDestinationFolder { get; set; }
+            public string DestinationExtension { get; set; }
 
             public DateTime FileDateLocal { get; set; }
             public string DestinationPath { get; set; }
@@ -249,18 +257,17 @@ namespace MurrayGrant.IncomingToLibrary
         private static async Task<ProcessFileResult> ProcessDng(ProcessFileData data)
         {
             // Compress the file with 7zip.
-            var destinationPath = Path.ChangeExtension(data.DestinationPath, "7z");
             var args = new[]
             {
                 "a",
                 "-mx5",
-                destinationPath,
+                data.DestinationPath,
                 data.Source.FullName,
             };
             await ExecAsync(data.Config.PathTo7Zip, args);
             return new ProcessFileResult()
             {
-                FinalDestinationPath = destinationPath
+                FinalDestinationPath = data.DestinationPath
             };
         }
 
