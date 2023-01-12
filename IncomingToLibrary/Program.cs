@@ -57,17 +57,26 @@ namespace MurrayGrant.IncomingToLibrary
                                     .Where(fi => !IsTempFile(fi));
                 foreach (var fi in sourceFiles)
                 {
+                    var fileData = new ProcessFileData()
+                    {
+                        Source = fi,
+                        SourceConfig = s,
+                        Config = config,
+                        MetadataByDestinationFolder = metadataByPath,
+                    };
+
                     // Process file based on file type.
                     if (String.Equals(fi.Extension, ".jpg", StringComparison.OrdinalIgnoreCase)
                         || String.Equals(fi.Extension, ".jpeg", StringComparison.OrdinalIgnoreCase))
-                        await ProcessFile(fi, ProcessJpg, s, config, metadataByPath);
+                        fileData.ProcessFile = ProcessJpg;
                     else if (String.Equals(fi.Extension, ".dng", StringComparison.OrdinalIgnoreCase))
-                        await ProcessFile(fi, ProcessDng, s, config, metadataByPath);
+                        fileData.ProcessFile = ProcessDng;
                     else if (String.Equals(fi.Extension, ".mp4", StringComparison.OrdinalIgnoreCase))
-                        await ProcessFile(fi, ProcessMp4, s, config, metadataByPath);
+                        fileData.ProcessFile = ProcessMp4;
                     else
-                        await ProcessFile(fi, ProcessUnknown, s, config, metadataByPath);
+                        fileData.ProcessFile = ProcessUnknown;
 
+                    await ProcessFile(fileData);
                     if (CancellationTokenSource.IsCancellationRequested)
                         break;
                 }
@@ -94,15 +103,9 @@ namespace MurrayGrant.IncomingToLibrary
         private static bool IsTempFile(FileInfo fi)
             => fi.Extension.Equals(".tmp", StringComparison.OrdinalIgnoreCase);
 
-        private static async Task ProcessFile(
-            FileInfo fi, 
-            Func<ProcessFileData, Task<ProcessFileResult>> fileTypeProcessor, 
-            PhotoSource srcCfg, 
-            Config cfg, 
-            Dictionary<string, Metadata> metadataByDestinationFolder
-        )
+        private static async Task ProcessFile(ProcessFileData fileData)
         {
-            Console.Write(fi.Name + ": ");
+            Console.Write(fileData.Source.Name + ": ");
             Metadata metadataForException = null;
             MetadataRecord mrForException = null;
             string destPathForException = null;
@@ -111,35 +114,44 @@ namespace MurrayGrant.IncomingToLibrary
             {
                 var sw = Stopwatch.StartNew();
                 // Read date for file.
-                var imgDate = GetDateForFile(fi, srcCfg.FilesInLocalOrUtc.GetValueOrDefault(DateTimeKind.Local));
-                var imgDateLocal = imgDate.LocalDateTime;
+                var imgDate = GetDateForFile(fileData.Source, fileData.SourceConfig.FilesInLocalOrUtc.GetValueOrDefault(DateTimeKind.Local));
+                fileData.FileDateLocal = imgDate.LocalDateTime;
 
                 // Check if the date means we'll import it.
-                if (imgDateLocal < cfg.EffectiveFromLocal)
+                if (fileData.FileDateLocal < fileData.Config.EffectiveFromLocal)
                 {
-                    Console.WriteLine("Older than {0:yyyy-MM-dd}, not processing ({1:N0}ms).", cfg.EffectiveFromLocal, sw.Elapsed.TotalMilliseconds);
+                    Console.WriteLine("Older than {0:yyyy-MM-dd}, not processing ({1:N0}ms).", fileData.Config.EffectiveFromLocal, sw.Elapsed.TotalMilliseconds);
                     return;
                 }
 
                 // Determine destination folder and filename.
-                var destFolder = Path.Combine(cfg.DestinationPath, imgDateLocal.ToString(cfg.DestinationSubFolderPattern));
-                var destName = srcCfg.FilenamePrefix + fi.Name;
-                var destPath = Path.Combine(destFolder, destName);
-                destPathForException = destPath;
+                var destFolder = Path.Combine(fileData.Config.DestinationPath, fileData.FileDateLocal.ToString(fileData.Config.DestinationSubFolderPattern));
+                var destName = fileData.SourceConfig.FilenamePrefix + fileData.Source.Name;
+                fileData.DestinationPath = Path.Combine(destFolder, destName);
+                destPathForException = fileData.DestinationPath;
 
                 // Preload the destination metadata.
-                if (!metadataByDestinationFolder.TryGetValue(destFolder, out var metadata))
+                if (!fileData.MetadataByDestinationFolder.TryGetValue(destFolder, out var metadata))
                 {
-                    metadata = await Metadata.LoadFromFile(Path.Combine(destFolder, cfg.MetadataFilename));
-                    metadataByDestinationFolder.Add(destFolder, metadata);
+                    metadata = await Metadata.LoadFromFile(Path.Combine(destFolder, fileData.Config.MetadataFilename));
+                    fileData.MetadataByDestinationFolder.Add(destFolder, metadata);
                 }
                 metadataForException = metadata;
 
                 // Check if file is already there (via metadata, or on disk).
-                var destFi = new FileInfo(destPath);
+                var destFi = new FileInfo(fileData.DestinationPath);
                 var destLength = destFi.Exists ? destFi.Length : 0L;
                 var alreadyExistsOnDisk = destFi.Exists && destLength > 1024;
-                var (mr, alreadyExistsInMetadata) = metadata.GetOrAddFile(destName, () => new MetadataRecord() { DestinationFilename = destName, SourceFilename = fi.Name, OriginalLength = fi.Length, Prefix = srcCfg.FilenamePrefix, ProcessingDatestamp = DateTimeOffset.Now });
+                var (mr, alreadyExistsInMetadata) = metadata.GetOrAddFile(
+                    destName, 
+                    () => new MetadataRecord() { 
+                        DestinationFilename = destName, 
+                        SourceFilename = fileData.Source.Name, 
+                        OriginalLength = fileData.Source.Length, 
+                        Prefix = fileData.SourceConfig.FilenamePrefix, 
+                        ProcessingDatestamp = DateTimeOffset.Now 
+                    }
+                );
                 var previousProcessingError = alreadyExistsOnDisk && alreadyExistsInMetadata && destLength <= 1024 && mr.OriginalLength > 1024;
                 mrForException = mr;
 
@@ -148,19 +160,11 @@ namespace MurrayGrant.IncomingToLibrary
                     if (previousProcessingError)
                         Console.Write("Error during previous processing run - attempting to reprocess: ");
 
-                    EnsureFolderFor(destPath);
-                    if (File.Exists(destPath))
-                        File.Delete(destPath);
+                    EnsureFolderFor(fileData.DestinationPath);
+                    if (File.Exists(fileData.DestinationPath))
+                        File.Delete(fileData.DestinationPath);
 
-                    await fileTypeProcessor(new ProcessFileData()
-                    {
-                        Source = fi,
-                        DestinationPath = destPath,
-                        SourceConfig = srcCfg,
-                        Config = cfg,
-                        FileDateLocal = imgDateLocal,
-                        MetadataByDestinationFolder = metadataByDestinationFolder,
-                    });
+                    await fileData.ProcessFile(fileData);
 
                     sw.Stop();
                     Console.WriteLine("Processed OK ({0:N0}ms).", sw.Elapsed.TotalMilliseconds);
@@ -175,7 +179,7 @@ namespace MurrayGrant.IncomingToLibrary
             catch (Exception ex)
             {
                 Console.WriteLine("Error - {0}: {1}. See stderr for stack trace.", ex.GetType().Name, ex.Message);
-                Console.Error.WriteLine("Error processing '{0}': {1}", fi.FullName, ex);
+                Console.Error.WriteLine("Error processing '{0}': {1}", fileData.Source.FullName, ex);
 
                 // Undo any partial work.
                 if (metadataForException != null && mrForException != null)
@@ -188,11 +192,14 @@ namespace MurrayGrant.IncomingToLibrary
         private class ProcessFileData
         {
             public FileInfo Source { get; set; }
-            public string DestinationPath { get; set; }
             public PhotoSource SourceConfig { get; set; }
             public Config Config { get; set; }
-            public DateTime FileDateLocal { get; set; }
             public Dictionary<string, Metadata> MetadataByDestinationFolder { get; set; }
+
+            public DateTime FileDateLocal { get; set; }
+            public string DestinationPath { get; set; }
+
+            public Func<ProcessFileData, Task<ProcessFileResult>> ProcessFile { get; set; }
         }
         private class ProcessFileResult
         {
