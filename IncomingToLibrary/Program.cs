@@ -77,8 +77,17 @@ namespace MurrayGrant.IncomingToLibrary
                         fileData.ProcessFile = ProcessUnknown;
 
                     // Some file types end up with a different extension, required for determining if the file has already been processed.
-                    if (String.Equals(fi.Extension, ".dng", StringComparison.OrdinalIgnoreCase))
+                    if (String.Equals(fi.Extension, ".dng", StringComparison.OrdinalIgnoreCase)
+                        && !String.IsNullOrEmpty(config.PathTo7Zip))
+                    {
                         fileData.DestinationExtension = "7z";
+                    }
+                    else if (String.Equals(fi.Extension, ".mp4", StringComparison.OrdinalIgnoreCase)
+                        && config.TranscodeVideos
+                        && !String.IsNullOrEmpty(config.PathToFfmpeg))
+                    {
+                        fileData.DestinationExtension = "mkv";
+                    }
 
                     // Process File!
                     await ProcessFile(fileData);
@@ -235,17 +244,36 @@ namespace MurrayGrant.IncomingToLibrary
 
         private static async Task<ProcessFileResult> ProcessMp4(ProcessFileData data)
         {
-            // TODO: use ffmpeg to transcode to AV1
-
-            // Copy.
-            await CopyFileAsync(data.Source.FullName, data.DestinationPath);
+            if (data.Config.TranscodeVideos)
+            {
+                // Use ffmpeg to transcode to AV1
+                var args = new[]
+                {
+                    "-hwaccel", "auto",
+                    "-i", data.Source.FullName,
+                    "-y",
+                    "-acodec", data.Config.TranscodeAudioCodec,
+                    "-b:a", data.Config.TranscodeAudioBitrate,
+                    "-vcodec", data.Config.TranscodeVideoCodec,
+                    "-crf", data.Config.TranscodeVideoQualityFactor,
+                    "-preset", data.Config.TranscodeVideoCpuFactor,
+                    "-g", data.Config.TranscodeVideoKeyframeFactor,
+                    data.DestinationPath,
+                };
+                await ExecAsync(data.Config.PathToFfmpeg, args);
+            }
+            else
+            {
+                // Streight copy when not transacoding.
+                await CopyFileAsync(data.Source.FullName, data.DestinationPath);
+            }
 
             // Then update metadata.
-            using (var mp4 = TagLib.File.Create(data.DestinationPath))
+            using (var video = TagLib.File.Create(data.DestinationPath))
             {
-                mp4.Tag.Copyright = $"Copyright (c) {data.SourceConfig.CopyrightTo}, {data.FileDateLocal.Year}. {data.SourceConfig.CopyrightLicenseShort}";
-                mp4.Tag.Comment = $"Copyright (c) {data.SourceConfig.CopyrightTo}, {data.FileDateLocal.Year}. {data.SourceConfig.CopyrightLicenseFull}. {data.SourceConfig.CopyrightUrl}";
-                mp4.Save();
+                video.Tag.Copyright = $"Copyright (c) {data.SourceConfig.CopyrightTo}, {data.FileDateLocal.Year}. {data.SourceConfig.CopyrightLicenseShort}";
+                video.Tag.Comment = $"Copyright (c) {data.SourceConfig.CopyrightTo}, {data.FileDateLocal.Year}. {data.SourceConfig.CopyrightLicenseFull}. {data.SourceConfig.CopyrightUrl}";
+                video.Save();
             }
 
             return new ProcessFileResult()
@@ -354,6 +382,7 @@ namespace MurrayGrant.IncomingToLibrary
                 p.Start();
                 p.BeginErrorReadLine();
                 p.BeginOutputReadLine();
+                p.PriorityClass = ProcessPriorityClass.BelowNormal;
 
                 await p.WaitForExitAsync(CancellationTokenSource.Token);
                 if (p.ExitCode >= failureErrorCode)

@@ -15,6 +15,17 @@ namespace MurrayGrant.IncomingToLibrary
         public IEnumerable<PhotoSource> PhotoSources { get; set; }
 
         public string PathTo7Zip { get; set; }
+        public string PathToFfmpeg { get; set; }
+
+        public bool TranscodeVideos { get; set; }
+
+        public string TranscodeAudioCodec { get; set; }
+        public string TranscodeAudioBitrate { get; set; }
+
+        public string TranscodeVideoCodec { get; set; }
+        public string TranscodeVideoQualityFactor { get; set; }
+        public string TranscodeVideoCpuFactor { get; set; }
+        public string TranscodeVideoKeyframeFactor { get; set; }
     }
 
     public class PhotoSource
