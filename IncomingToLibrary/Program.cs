@@ -19,6 +19,7 @@ namespace MurrayGrant.IncomingToLibrary
     class Program
     {
         private static CancellationTokenSource CancellationTokenSource;
+        private const double OneMB = 1024.0 * 1024.0;
 
         public static async Task Main(string[] args)
         {
@@ -180,10 +181,10 @@ namespace MurrayGrant.IncomingToLibrary
                     if (File.Exists(fileData.DestinationPath))
                         File.Delete(fileData.DestinationPath);
 
-                    await fileData.ProcessFile(fileData);
+                    var processResult = await fileData.ProcessFile(fileData);
 
                     sw.Stop();
-                    Console.WriteLine("Processed OK ({0:N0}ms).", sw.Elapsed.TotalMilliseconds);
+                    Console.WriteLine("Processed OK ({0:N0}ms). Source {1:N2}MB, Dest {2:N2}MB.", sw.Elapsed.TotalMilliseconds, fileData.Source.Length / OneMB, processResult.Destination.Length / OneMB);
                 }
 
                 sw.Stop();
@@ -220,7 +221,7 @@ namespace MurrayGrant.IncomingToLibrary
         }
         private class ProcessFileResult
         {
-            public string FinalDestinationPath { get; set; }
+            public FileInfo Destination { get; set; }
         }
 
         private static async Task<ProcessFileResult> ProcessJpg(ProcessFileData data)
@@ -238,7 +239,7 @@ namespace MurrayGrant.IncomingToLibrary
 
             return new ProcessFileResult() 
             { 
-                FinalDestinationPath = data.DestinationPath 
+                Destination = new FileInfo(data.DestinationPath) 
             };
         }
 
@@ -278,7 +279,7 @@ namespace MurrayGrant.IncomingToLibrary
 
             return new ProcessFileResult()
             {
-                FinalDestinationPath = data.DestinationPath
+                Destination = new FileInfo(data.DestinationPath)
             };
         }
 
@@ -295,7 +296,7 @@ namespace MurrayGrant.IncomingToLibrary
             await ExecAsync(data.Config.PathTo7Zip, args);
             return new ProcessFileResult()
             {
-                FinalDestinationPath = data.DestinationPath
+                Destination = new FileInfo(data.DestinationPath)
             };
         }
 
@@ -305,7 +306,7 @@ namespace MurrayGrant.IncomingToLibrary
             await CopyFileAsync(data.Source.FullName, data.DestinationPath);
             return new ProcessFileResult()
             {
-                FinalDestinationPath = data.DestinationPath
+                Destination = new FileInfo(data.DestinationPath)
             };
         }
 
