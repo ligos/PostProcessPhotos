@@ -81,7 +81,7 @@ namespace MurrayGrant.IncomingToLibrary
                     if (String.Equals(fi.Extension, ".dng", StringComparison.OrdinalIgnoreCase)
                         && !String.IsNullOrEmpty(config.PathTo7Zip))
                     {
-                        fileData.DestinationExtension = "7z";
+                        fileData.DestinationExtension = "dng.7z";
                     }
                     else if (String.Equals(fi.Extension, ".mp4", StringComparison.OrdinalIgnoreCase)
                         && config.TranscodeVideos
