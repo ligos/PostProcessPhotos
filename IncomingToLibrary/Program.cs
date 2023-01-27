@@ -45,7 +45,7 @@ namespace MurrayGrant.IncomingToLibrary
             }
 
             // Don't grab all the CPU.
-            Process.GetCurrentProcess().PriorityClass = ProcessPriorityClass.BelowNormal;
+            TrySetLowPriority();
 
             // For each source
             foreach (var s in config.PhotoSources)
@@ -400,6 +400,17 @@ namespace MurrayGrant.IncomingToLibrary
         private static void EnsureFolderFor(string destinationPathAndFilename) 
             => Directory.CreateDirectory(Path.GetDirectoryName(destinationPathAndFilename));
 
+        private static void TrySetLowPriority()
+        {
+            try
+            {
+                Process.GetCurrentProcess().PriorityClass = ProcessPriorityClass.BelowNormal;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Unable to lower process priority: {ex.GetType().Name} - {ex.Message}. I hope the process was started as low priority!");
+            }
+        }
     }
 }
 
