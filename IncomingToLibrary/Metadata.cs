@@ -1,12 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
-
-using Newtonsoft.Json;
 
 namespace MurrayGrant.IncomingToLibrary
 {
@@ -48,14 +47,14 @@ namespace MurrayGrant.IncomingToLibrary
             if (!File.Exists(path))
                 return new Metadata() { PathAndFilename = path };
             var content = await File.ReadAllTextAsync(path, Encoding.UTF8);
-            var records = JsonConvert.DeserializeObject<List<MetadataRecord>>(content);
+            var records = JsonSerializer.Deserialize<List<MetadataRecord>>(content);
             var result = new Metadata(records);
             result.PathAndFilename = path;
             return result;
         }
         public async Task SaveToFile()
         {
-            var content = JsonConvert.SerializeObject(this.Photos.ToList(), Formatting.Indented);
+            var content = JsonSerializer.Serialize(this.Photos.ToList(), options: new JsonSerializerOptions() { WriteIndented = true });
             var tmpPath = this.PathAndFilename + ".tmp";
             var tmpPath2 = this.PathAndFilename + ".tmp2";
             await File.WriteAllTextAsync(tmpPath, content, Encoding.UTF8);
